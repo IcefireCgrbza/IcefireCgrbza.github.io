@@ -1,0 +1,3 @@
+[submodule "themes/yilia-plus"]
+	path = themes/yilia-plus
+	url = http://github.com/JoeyBling/hexo-theme-yilia-plus.git
