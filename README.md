@@ -1,24 +1,22 @@
-# npm升级
+## Quick Start
 ```
+// 升级node
 npm install -g n
 n stable
 
+// 安装hexo
 npm install -g hexo
-```
 
-# 下载项目
-```
+// clone项目，注意该项目下包含子模块
 git clone --recursive  https://github.com/IcefireCgrbza/IcefireCgrbza.github.io
 
+// npm install
 cd themes/icarus
 npm install
 
 cd ../..
 npm install
-```
 
-# hexo相关
-```
 // 本地启动
 hexo server
 
