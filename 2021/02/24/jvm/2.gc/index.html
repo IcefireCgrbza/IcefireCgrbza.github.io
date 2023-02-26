@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"><meta><title>2. G1垃圾回收（GC） - Icf的技术小站</title><link rel="manifest" href="/manifest.json"><meta name="theme-color" content="#3273dc"><meta name="application-name" content="icf的技术小站"><meta name="msapplication-TileImage" content="/img/favicon.ico"><meta name="msapplication-TileColor" content="#3273dc"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="icf的技术小站"><meta name="apple-mobile-web-app-status-bar-style" content="default"><meta name="description" content="怎样的对象可以回收 引用计数：循环引用无法回收 可达性分析(root-tracing)：root可达的节点都是活节点，root节点包括 栈中的节点 方法区静态对象引用的节点 方法区的常量引用的节点 本地方法栈引用的节点    引用类型 强引用：类似Object obj &amp;#x3D; new Object()，存在强引用则不会被回收 弱引用：可用WeakReference类实现，下次垃圾回收时被回收 虚引用："><meta property="og:type" content="blog"><meta property="og:title" content="2. G1垃圾回收（GC）"><meta property="og:url" content="https://icefirecgrbza.github.io/2021/02/24/jvm/2.gc/"><meta property="og:site_name" content="Icf的技术小站"><meta property="og:description" content="怎样的对象可以回收 引用计数：循环引用无法回收 可达性分析(root-tracing)：root可达的节点都是活节点，root节点包括 栈中的节点 方法区静态对象引用的节点 方法区的常量引用的节点 本地方法栈引用的节点    引用类型 强引用：类似Object obj &amp;#x3D; new Object()，存在强引用则不会被回收 弱引用：可用WeakReference类实现，下次垃圾回收时被回收 虚引用："><meta property="og:locale" content="zh_CN"><meta property="og:image" content="https://icefirecgrbza.github.io/img/jvm/cms.jpeg"><meta property="og:image" content="https://icefirecgrbza.github.io/img/jvm/g1_heap.jpeg"><meta property="article:published_time" content="2021-02-24T12:34:58.000Z"><meta property="article:modified_time" content="2023-02-19T02:09:24.703Z"><meta property="article:author" content="Icf"><meta property="article:tag" content="三、深入理解Java虚拟机"><meta property="twitter:card" content="summary"><meta property="twitter:image" content="https://icefirecgrbza.github.io/img/jvm/cms.jpeg"><script type="application/ld+json">{"@context":"https://schema.org","@type":"BlogPosting","mainEntityOfPage":{"@type":"WebPage","@id":"https://icefirecgrbza.github.io/2021/02/24/jvm/2.gc/"},"headline":"2. G1垃圾回收（GC）","image":[],"datePublished":"2021-02-24T12:34:58.000Z","dateModified":"2023-02-19T02:09:24.703Z","author":{"@type":"Person","name":"Icf"},"description":"怎样的对象可以回收 引用计数：循环引用无法回收 可达性分析(root-tracing)：root可达的节点都是活节点，root节点包括 栈中的节点 方法区静态对象引用的节点 方法区的常量引用的节点 本地方法栈引用的节点    引用类型 强引用：类似Object obj &#x3D; new Object()，存在强引用则不会被回收 弱引用：可用WeakReference类实现，下次垃圾回收时被回收 虚引用："}</script><link rel="canonical" href="https://icefirecgrbza.github.io/2021/02/24/jvm/2.gc/"><link rel="icon" href="/img/favicon.ico"><link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.12.0/css/all.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@9.12.0/styles/atom-one-light.css"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Ubuntu:wght@400;600&amp;family=Source+Code+Pro"><link rel="stylesheet" href="/css/default.css"><style>body>.footer,body>.navbar,body>.section{opacity:0}</style><!--!--><!--!--><!--!--><!--!--><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cookieconsent@3.1.1/build/cookieconsent.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/lightgallery@1.6.8/dist/css/lightgallery.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/justifiedGallery@3.7.0/dist/css/justifiedGallery.min.css"><!--!--><!--!--><script src="https://cdn.jsdelivr.net/npm/pace-js@1.0.2/pace.min.js"></script><!--!--><!--!--><meta name="generator" content="Hexo 5.3.0"></head><body class="is-3-column"><nav class="navbar navbar-main"><div class="container"><div class="navbar-brand justify-content-center"><a class="navbar-item navbar-logo" href="/">Icf的技术小站</a></div><div class="navbar-menu"><div class="navbar-start"><a class="navbar-item" href="/">主页</a><a class="navbar-item" href="/categories">分类</a><a class="navbar-item" href="/tags">标签</a></div><div class="navbar-end"><a class="navbar-item search" title="搜索" href="javascript:;"><i class="fas fa-search"></i></a></div></div></div></nav><section class="section"><div class="container"><div class="columns"><div class="column order-2 column-main is-10-tablet is-10-desktop is-8-widescreen"><div class="card"><article class="card-content article" role="article"><div class="article-meta is-size-7 is-uppercase level is-mobile"><div class="level-left"><span class="level-item"><time dateTime="2021-02-24T12:34:58.000Z" title="2021/2/24 20:34:58">2021-02-24</time>发表</span><span class="level-item"><time dateTime="2023-02-19T02:09:24.703Z" title="2023/2/19 10:09:24">2023-02-19</time>更新</span><span class="level-item"><a class="link-muted" href="/categories/%E4%B8%89%E3%80%81%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3Java%E8%99%9A%E6%8B%9F%E6%9C%BA/">三、深入理解Java虚拟机</a></span><span class="level-item">17 分钟读完 (大约2622个字)</span></div></div><h1 class="title is-3 is-size-4-mobile">2. G1垃圾回收（GC）</h1><div class="content"><h1 id="怎样的对象可以回收"><a href="#怎样的对象可以回收" class="headerlink" title="怎样的对象可以回收"></a>怎样的对象可以回收</h1><ul>
+<li>引用计数：循环引用无法回收</li>
+<li>可达性分析(root-tracing)：root可达的节点都是活节点，root节点包括<ul>
+<li>栈中的节点</li>
+<li>方法区静态对象引用的节点</li>
+<li>方法区的常量引用的节点</li>
+<li>本地方法栈引用的节点</li>
+</ul>
+</li>
+</ul>
+<h1 id="引用类型"><a href="#引用类型" class="headerlink" title="引用类型"></a>引用类型</h1><ul>
+<li>强引用：类似Object obj = new Object()，存在强引用则不会被回收</li>
+<li>弱引用：可用WeakReference类实现，下次垃圾回收时被回收</li>
+<li>虚引用：垃圾回收时可收到通知</li>
+<li>软引用：可用SoftReference类实现，内存即将溢出时可回收</li>
+</ul>
+<h1 id="方法区的收集时机"><a href="#方法区的收集时机" class="headerlink" title="方法区的收集时机"></a>方法区的收集时机</h1><ul>
+<li>该类对象已经全部被回收</li>
+<li>classloader已经被回收</li>
+<li>无法通过任何方法访问该类</li>
+</ul>
+<h1 id="垃圾收集算法"><a href="#垃圾收集算法" class="headerlink" title="垃圾收集算法"></a>垃圾收集算法</h1><h3 id="标记-清除法"><a href="#标记-清除法" class="headerlink" title="标记-清除法"></a>标记-清除法</h3><p>标记-清除算法对根集合进行扫描，对存活的对象进行标记。标记完成后，再对整个空间内未被标记的对象扫描，进行回收。</p>
+<p>这存在一个缺点：容易造成内存碎片，导致空间足够但大对象无法分配</p>
+<h3 id="复制算法"><a href="#复制算法" class="headerlink" title="复制算法"></a>复制算法</h3><p>这常用于新生代的垃圾收集，将新生代分为Eden，from，to三个区，不通过jvm参数指定时默认比例8:1:1。</p>
+<p>回收时，将eden区可达对象和from区可达对象移到to区，然后进行清理。有以下几种情况，对象会被移到老年代：</p>
+<ul>
+<li>如果对象过大，则移到老年代（Tenured）</li>
+<li>from区可达对象年龄超过jvm参数指定的年龄（默认15），移到老年代</li>
+<li>如果对象大于from区大小*jvm参数指定的阈值，移到老年代</li>
+</ul>
+<p>缺点是可用的内存大小缩小为原来的一半，对象存活率高时会频繁进行复制</p>
+<h3 id="标记-整理算法"><a href="#标记-整理算法" class="headerlink" title="标记-整理算法"></a>标记-整理算法</h3><p>标记-整理算法 采用和 标记-清除算法 一样的方式进行对象的标记，但后续不直接对可回收对象进行清理，而是将所有的 存活对象 往一端 空闲空间 移动，然后清理掉端边界以外的内存空间</p>
+<p>这解决了标记-清理算法存在的内存碎片问题，但需要进行局部对象移动，一定程度上降低了效率</p>
+<h1 id="分代收集模型"><a href="#分代收集模型" class="headerlink" title="分代收集模型"></a>分代收集模型</h1><p>当代大多数的垃圾回收器都使用分代模型，将堆内存分为新生代和老年代</p>
+<ul>
+<li>新生代 (Young Generation) <ul>
+<li>Eden区：对象首先进入Eden区</li>
+<li>Survivor区：有2个Survivor区，用于对象复制；前几次回收，存活对象由Eden区转移到Survivor区，再在两个Survivor区不断交换</li>
+</ul>
+</li>
+<li>老年代 (Old Generation) ：在Survivor区的对象经历若干次收集仍然存活的，就会被转移到老年代Old中</li>
+</ul>
+<h1 id="垃圾收集器"><a href="#垃圾收集器" class="headerlink" title="垃圾收集器"></a>垃圾收集器</h1><h3 id="Serial"><a href="#Serial" class="headerlink" title="Serial"></a>Serial</h3><p>单线程的新生代收集器，采用复制算法</p>
+<h3 id="ParNew"><a href="#ParNew" class="headerlink" title="ParNew"></a>ParNew</h3><p>多线程的新生代收集器，采用复制算法</p>
+<h3 id="ParallelScavenge"><a href="#ParallelScavenge" class="headerlink" title="ParallelScavenge"></a>ParallelScavenge</h3><p>多线程的新生代收集器，采用复制算法；更关注吞吐量高</p>
+<h3 id="ParallelOld"><a href="#ParallelOld" class="headerlink" title="ParallelOld"></a>ParallelOld</h3><p>多线程的老年代收集器，采用标记-整理算法；更关注吞吐量</p>
+<h3 id="SerialOld"><a href="#SerialOld" class="headerlink" title="SerialOld"></a>SerialOld</h3><p>单线程的老年代收集器，采用标记-整理算法。是CMS等并发收集器的后备方案</p>
+<h1 id="CMS"><a href="#CMS" class="headerlink" title="CMS"></a>CMS</h1><p>支持并发的老年代收集器，采用标记-清除算法</p>
+<p>步骤如下：</p>
+<ul>
+<li>初始标记（STW）：标记root（可达性分析中的节点+新生代节点）可达的第一个节点</li>
+<li>并发标记：标记从初始标记可达的节点，将变化的可达节点标为dirty</li>
+<li>重新标记（STW）：重新标记dirty的节点</li>
+<li>并发清除：清除标记为不可达的节点</li>
+</ul>
+<p><img src="https://icefirecgrbza.github.io/img/jvm/cms.jpeg"></p>
+<p>触发Minor GC的时机：达到阈值即触发回收，而不是等到满；若清理过程中内存不足，将触发一次Full GC，退化为使用SerialOld进行收集</p>
+<p>CMS收集器不能和ParallelScavenge合作，因为吞吐量优先和停顿时间优先是背道而驰的</p>
+<p>由于CMS会产生过多的内存碎片，因此一定次数后悔使用SerialOld的进行一次FullGC</p>
+<h1 id="G1收集器"><a href="#G1收集器" class="headerlink" title="G1收集器"></a>G1收集器</h1><p>支持并发的新生代和老生代收集器，采用复制算法，在Region之间进行复制，一定程度上回避了了复制算法效率低的问题</p>
+<h3 id="内存模型"><a href="#内存模型" class="headerlink" title="内存模型"></a>内存模型</h3><p>G1收集器将堆分成Region，逻辑上区分Eden、Survivor、Old、Humongous（大对象，可以算作Old的一部分）、unuse，因此G1也是基于分代模型的</p>
+<p><img src="https://icefirecgrbza.github.io/img/jvm/g1_heap.jpeg"></p>
+<p>G1是智能的，一般不需要设置太复杂的JVM参数，G1会智能的调整堆大小和新生代、老年代占比，按我们设置的停顿时间作为目标进行回收，优先收集垃圾最多的Region</p>
+<p>内存耗尽，G1先尝试扩容。达到-Xmx设置的堆大小最大值后，新生代耗尽就会触发新生代的回收。若老年代内存超过阈值，则会触发一次Mixed GC，阈值由-XX:InitiatingHeapOccupancyPercent决定；若清理过程中内存不足，将触发一次Full GC，退化为使用SerialOld进行收集</p>
+<p>Region由n个Card组成，一个对象分配n个连续的Card。若对象大小超过Region大小的一半，则为大对象（Humongous），Region类型为Humongous，可看做老年代，会分配一个或多个Region。G1对大对象的回收做了优化，若对象不可达，可在Young GC时回收</p>
+<p><a href="https://icefirecgrbza.github.io/resource/g1.pdf" target="_blank">详情参考：Getting Started with the G1 Garbage Collector</a></p>
+<h3 id="一些概念"><a href="#一些概念" class="headerlink" title="一些概念"></a>一些概念</h3><ul>
+<li>TLAB，线程的本地分配缓冲，属于Eden区</li>
+<li>PLAB，GC的晋升本地分配缓冲，属于Suvivor或老生代</li>
+<li>RSet，只有老生代Region才有，记录哪个分区的哪个Card的对象引用本分区的对象，避免老生代的回收需要扫描全堆<ul>
+<li>维护方式：<ol>
+<li>栅栏，一个赋值操作进行前（写前栅栏），引用-1</li>
+<li>赋值完成后（写后栅栏），引用+1，通过批量操作更新RSet</li>
+<li>STAB（起始快照算法），维护逻辑上的堆引用图，用于并发标记期间更新RSet</li>
+<li>三色标记法，黑色是自己和子节点存活，灰色是自己存活，白色是非存活</li>
+<li>引用变更时进到变更队列，出队时把该节点标为非白</li>
+<li>并发优化（Refinement）线程负责更新RSet，如果来不及处理会停止应用线程（发生在任意时刻）</li>
+</ol>
+</li>
+<li>总结：栅栏时引用写入缓冲区，并发优化线程读取缓冲区更新RSet</li>
+</ul>
+</li>
+<li>PRT（Per Region Table），避免被引用多的分区的RSet太大，会区分粒度的记录引用<ul>
+<li>记录Card</li>
+<li>记录引用对象的分区</li>
+<li>只记录某个分区有没有引用</li>
+</ul>
+</li>
+<li>并发标记线程：通过PTAMS和NTAMS标记已完成标记的区域和下次标记的区域，使用previous和next位图标记存活对象（只发生在并发标记期间）</li>
+</ul>
+<h3 id="新生代回收"><a href="#新生代回收" class="headerlink" title="新生代回收"></a>新生代回收</h3><p>新生代回收采用复制算法，多个Region上的垃圾对象被清理后，会被复制到新的Region上，解决内存碎片的问题。本质上和其他回收器没有区别</p>
+<h3 id="老年代回收"><a href="#老年代回收" class="headerlink" title="老年代回收"></a>老年代回收</h3><p>步骤如下：</p>
+<ul>
+<li>初始标记（STW）：和youngGC一起（好处是并发根分区扫描时减少youngGC的概率），通过RSET找到root Rigion，通过root region找root节点</li>
+<li>根分区扫描：把SUVIVOR分区的节点标为根，此时如果有youngGC会等根分区扫描完成</li>
+<li>并发标记：并发标记线程标记存活对象，这个阶段空region会立即回收掉，并发优化线程处理RSet变化，计算存活率</li>
+<li>重新标记（STW）：这个阶段需要完成标记堆上的存活对象，处理在并发标记阶段未处理的RSet，采用STAB算法</li>
+<li>清除（STW）：回收空region，交换PTAMS和NTAMS，previous位图和next位图，入CSET，之后就可以进行MixedGC，回收到足够多的Region后结束</li>
+<li>复制：将存活对象复制到新的Region上，解决内存碎片问题。这往往伴随着一次Young GC</li>
+</ul>
+<h1 id="GC相关的JVM参数"><a href="#GC相关的JVM参数" class="headerlink" title="GC相关的JVM参数"></a>GC相关的JVM参数</h1><ul>
+<li>-XX:+PrintGCDetails：打印GC日志</li>
+<li>-XX:NewRatio：设置新生代和老年代比例（G1不建议使用）</li>
+<li>-XX:NewSize：设置新生代大小（G1不建议使用）</li>
+<li>-XX:MaxNewSize：设置新生代最大大小（G1不建议使用）</li>
+<li>-XX:CMSFullGCsBeForeCompaction：n次CMS后触发FullGC</li>
+<li>-XX:GCTimeRatio：GCtime占比，CMS默认99，G1默认9</li>
+<li>-XX:+UseG1GC：开启G1</li>
+<li>-XX:MaxGCPauseMillis=200：期望的最大STW时间，默认200ms</li>
+<li>-XX:InitiatingHeapOccupancyPercent=45：回收老生代的阈值，老年代达到阈值即开始并发标记，默认45%</li>
+<li>-XX:ConcGCThreads=n：设置并发标记的线程数，默认值看不同平台</li>
+<li>-XX:G1ReservePercent=n：为晋升保留的空间，默认为10%</li>
+<li>-XX:SurvivorRatio=n：设置eden/survivro，默认为8</li>
+<li>-XX:MaxTenuringThreshold=n：最大晋升阈值，默认为15</li>
+<li>-XX:ParallelGCThreads=n：新生代收集的线程数，默认值看不同平台</li>
+<li>-XX:G1HeapRegionSize=n：最小1MB，最大32MB，默认值看堆大小，堆大小除以2048</li>
+<li>-XX:G1NewSizePercent：最小新生代比例，默认5%</li>
+<li>-XX:G1MaxNewSizePercent：最大新生代比例，默认60%</li>
+<li>-XX:G1MixedGCLiveThresholdPercent：活跃度小于阈值，才进入CSET，默认65%</li>
+<li>-XX:G1OldCSetRegionThresholdPercent=10：进入CSET的老生带Region占用内存最大值，默认10%</li>
+<li>-XX:G1MixedGCCountTarget=8：MixGc的最大次数</li>
+<li>-XX:G1HeapWastePercent=10：可回收百分比小于阈值不回收，默认10%</li>
+</ul>
+</div><div class="article-licensing box"><div class="licensing-title"><p>2. G1垃圾回收（GC）</p><p><a href="https://icefirecgrbza.github.io/2021/02/24/jvm/2.gc/">https://icefirecgrbza.github.io/2021/02/24/jvm/2.gc/</a></p></div><div class="licensing-meta level is-mobile"><div class="level-left"><div class="level-item is-narrow"><div><h6>作者</h6><p>Icf</p></div></div><div class="level-item is-narrow"><div><h6>发布于</h6><p>2021-02-24</p></div></div><div class="level-item is-narrow"><div><h6>更新于</h6><p>2023-02-19</p></div></div><div class="level-item is-narrow"><div><h6>许可协议</h6><p><a class="icon" rel="noopener" target="_blank" title="Creative Commons" href="https://creativecommons.org/"><i class="fab fa-creative-commons"></i></a><a class="icon" rel="noopener" target="_blank" title="Attribution" href="https://creativecommons.org/licenses/by/4.0/"><i class="fab fa-creative-commons-by"></i></a><a class="icon" rel="noopener" target="_blank" title="Noncommercial" href="https://creativecommons.org/licenses/by-nc/4.0/"><i class="fab fa-creative-commons-nc"></i></a></p></div></div></div></div></div><div class="article-tags is-size-7 mb-4"><span class="mr-2">#</span><a class="link-muted mr-2" rel="tag" href="/tags/%E4%B8%89%E3%80%81%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3Java%E8%99%9A%E6%8B%9F%E6%9C%BA/">三、深入理解Java虚拟机</a></div><!--!--></article></div><!--!--><nav class="post-navigation mt-4 level is-mobile"><div class="level-start"><a class="article-nav-prev level level-item link-muted" href="/2021/02/27/algo/2.bubble_sort/"><i class="level-item fas fa-chevron-left"></i><span class="level-item">2. 冒泡排序</span></a></div></nav><!--!--></div><div class="column column-left is-2-tablet is-2-desktop is-2-widescreen  order-1 is-sticky"><div class="card widget" data-type="profile"><div class="card-content"><nav class="level"><div class="level-item has-text-centered flex-shrink-1"><div><figure class="image is-128x128 mx-auto mb-2"><img class="avatar is-rounded" src="/img/favicon.ico" alt="icf"></figure><p class="title is-size-4 is-block" style="line-height:inherit;">icf</p><p class="is-size-6 is-block">一只默默无名的小社畜</p><p class="is-size-6 is-flex justify-content-center"><i class="fas fa-map-marker-alt mr-1"></i><span>广东 广州</span></p></div></div></nav><nav class="level is-mobile"><div class="level-item has-text-centered is-marginless"><div><p class="heading">文章</p><a href="/archives"><p class="title">33</p></a></div></div><div class="level-item has-text-centered is-marginless"><div><p class="heading">分类</p><a href="/categories"><p class="title">8</p></a></div></div><div class="level-item has-text-centered is-marginless"><div><p class="heading">标签</p><a href="/tags"><p class="title">8</p></a></div></div></nav><div class="level"><a class="level-item button is-primary is-rounded" href="https://github.com/IcefireCgrbza" target="_blank" rel="noopener">关注我</a></div><div class="level is-mobile is-multiline"><a class="level-item button is-transparent is-marginless" target="_blank" rel="noopener" title="Github" href="https://github.com/IcefireCgrbza"><i class="fab fa-github"></i></a></div></div></div><div class="card widget" data-type="categories"><div class="card-content"><div class="menu"><h3 class="menu-label">分类</h3><ul class="menu-list"><li><a class="level is-mobile" href="/categories/%E4%B8%80%E3%80%81%E7%AE%97%E6%B3%95%E4%B8%8E%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84/"><span class="level-start"><span class="level-item">一、算法与数据结构</span></span><span class="level-end"><span class="level-item tag">11</span></span></a></li><li><a class="level is-mobile" href="/categories/%E4%B8%89%E3%80%81%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3Java%E8%99%9A%E6%8B%9F%E6%9C%BA/"><span class="level-start"><span class="level-item">三、深入理解Java虚拟机</span></span><span class="level-end"><span class="level-item tag">3</span></span></a></li><li><a class="level is-mobile" href="/categories/%E4%B9%9D%E3%80%81Mysql/"><span class="level-start"><span class="level-item">九、Mysql</span></span><span class="level-end"><span class="level-item tag">3</span></span></a></li><li><a class="level is-mobile" href="/categories/%E4%BA%8C%E3%80%81Leetcode%E5%88%B7%E9%A2%98/"><span class="level-start"><span class="level-item">二、Leetcode刷题</span></span><span class="level-end"><span class="level-item tag">4</span></span></a></li><li><a class="level is-mobile" href="/categories/%E4%BA%94%E3%80%81%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F/"><span class="level-start"><span class="level-item">五、操作系统</span></span><span class="level-end"><span class="level-item tag">5</span></span></a></li><li><a class="level is-mobile" href="/categories/%E5%85%AD%E3%80%81Netty/"><span class="level-start"><span class="level-item">六、Netty</span></span><span class="level-end"><span class="level-item tag">3</span></span></a></li><li><a class="level is-mobile" href="/categories/%E5%85%AD%E3%80%81%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%BD%91%E7%BB%9C/"><span class="level-start"><span class="level-item">六、计算机网络</span></span><span class="level-end"><span class="level-item tag">2</span></span></a></li><li><a class="level is-mobile" href="/categories/%E5%8D%81%E3%80%81%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F/"><span class="level-start"><span class="level-item">十、分布式系统</span></span><span class="level-end"><span class="level-item tag">1</span></span></a></li></ul></div></div></div><div class="card widget" data-type="tags"><div class="card-content"><div class="menu"><h3 class="menu-label">标签</h3><div class="field is-grouped is-grouped-multiline"><div class="control"><a class="tags has-addons" href="/tags/%E4%B8%80%E3%80%81%E7%AE%97%E6%B3%95%E4%B8%8E%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84/"><span class="tag">一、算法与数据结构</span><span class="tag">11</span></a></div><div class="control"><a class="tags has-addons" href="/tags/%E4%B8%89%E3%80%81%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3Java%E8%99%9A%E6%8B%9F%E6%9C%BA/"><span class="tag">三、深入理解Java虚拟机</span><span class="tag">3</span></a></div><div class="control"><a class="tags has-addons" href="/tags/%E4%B9%9D%E3%80%81Mysql/"><span class="tag">九、Mysql</span><span class="tag">3</span></a></div><div class="control"><a class="tags has-addons" href="/tags/%E4%BA%8C%E3%80%81Leetcode%E5%88%B7%E9%A2%98/"><span class="tag">二、Leetcode刷题</span><span class="tag">4</span></a></div><div class="control"><a class="tags has-addons" href="/tags/%E4%BA%94%E3%80%81%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F/"><span class="tag">五、操作系统</span><span class="tag">5</span></a></div><div class="control"><a class="tags has-addons" href="/tags/%E5%85%AD%E3%80%81Netty/"><span class="tag">六、Netty</span><span class="tag">3</span></a></div><div class="control"><a class="tags has-addons" href="/tags/%E5%85%AD%E3%80%81%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%BD%91%E7%BB%9C/"><span class="tag">六、计算机网络</span><span class="tag">2</span></a></div><div class="control"><a class="tags has-addons" href="/tags/%E5%8D%81%E3%80%81%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F%E8%A7%A3%E5%86%B3%E6%96%B9%E6%A1%88/"><span class="tag">十、分布式系统解决方案</span><span class="tag">1</span></a></div></div></div></div></div><div class="column-right-shadow is-hidden-widescreen is-sticky"></div></div><div class="column column-right is-2-tablet is-2-desktop is-2-widescreen is-hidden-touch is-hidden-desktop-only order-3 is-sticky"><!--!--><div class="card widget" data-type="recent-posts"><div class="card-content"><h3 class="menu-label">最新文章</h3><article class="media"><div class="media-content"><p class="date"><time dateTime="2021-04-21T11:59:01.000Z">2021-04-21</time></p><p class="title"><a href="/2021/04/21/mysql/3.transaction/">4.事务机制</a></p><p class="categories"><a href="/categories/%E4%B9%9D%E3%80%81Mysql/">九、Mysql</a></p></div></article><article class="media"><div class="media-content"><p class="date"><time dateTime="2021-04-21T11:58:40.000Z">2021-04-21</time></p><p class="title"><a href="/2021/04/21/mysql/2.lock/">2.锁机制</a></p><p class="categories"><a href="/categories/%E4%B9%9D%E3%80%81Mysql/">九、Mysql</a></p></div></article><article class="media"><div class="media-content"><p class="date"><time dateTime="2021-04-21T11:56:39.000Z">2021-04-21</time></p><p class="title"><a href="/2021/04/21/mysql/1.index/">1.索引与存储引擎</a></p><p class="categories"><a href="/categories/%E4%B9%9D%E3%80%81Mysql/">九、Mysql</a></p></div></article><article class="media"><div class="media-content"><p class="date"><time dateTime="2021-04-19T13:19:20.000Z">2021-04-19</time></p><p class="title"><a href="/2021/04/19/jvm/1.memory/">1.内存分布</a></p><p class="categories"><a href="/categories/%E4%B8%89%E3%80%81%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3Java%E8%99%9A%E6%8B%9F%E6%9C%BA/">三、深入理解Java虚拟机</a></p></div></article><article class="media"><div class="media-content"><p class="date"><time dateTime="2021-04-19T13:19:20.000Z">2021-04-19</time></p><p class="title"><a href="/2021/04/19/distributed_system/1.distributed_transaction/">1.分布式事务解决方案</a></p><p class="categories"><a href="/categories/%E5%8D%81%E3%80%81%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F/">十、分布式系统</a></p></div></article></div></div><div class="card widget" data-type="archives"><div class="card-content"><div class="menu"><h3 class="menu-label">归档</h3><ul class="menu-list"><li><a class="level is-mobile" href="/archives/2021/04/"><span class="level-start"><span class="level-item">四月 2021</span></span><span class="level-end"><span class="level-item tag">13</span></span></a></li><li><a class="level is-mobile" href="/archives/2021/03/"><span class="level-start"><span class="level-item">三月 2021</span></span><span class="level-end"><span class="level-item tag">16</span></span></a></li><li><a class="level is-mobile" href="/archives/2021/02/"><span class="level-start"><span class="level-item">二月 2021</span></span><span class="level-end"><span class="level-item tag">4</span></span></a></li></ul></div></div></div></div></div></div></section><footer class="footer"><div class="container"><div class="level"><div class="level-start"><a class="footer-logo is-block mb-2" href="/">Icf的技术小站</a><p class="is-size-7"><span>&copy; 2023 Icf</span>  Powered by <a href="https://hexo.io/" target="_blank" rel="noopener">Hexo</a> &amp; <a href="https://github.com/ppoffice/hexo-theme-icarus" target="_blank" rel="noopener">Icarus</a></p></div><div class="level-end"></div></div></div></footer><script src="https://cdn.jsdelivr.net/npm/jquery@3.3.1/dist/jquery.min.js"></script><script src="https://cdn.jsdelivr.net/npm/moment@2.22.2/min/moment-with-locales.min.js"></script><script src="https://cdn.jsdelivr.net/npm/clipboard@2.0.4/dist/clipboard.min.js" defer></script><script>moment.locale("zh-CN");</script><script>var IcarusThemeSettings = {
+            article: {
+                highlight: {
+                    clipboard: true,
+                    fold: 'unfolded'
+                }
+            }
+        };</script><script src="/js/column.js"></script><script src="/js/animation.js"></script><a id="back-to-top" title="回到顶端" href="javascript:;"><i class="fas fa-chevron-up"></i></a><script src="/js/back_to_top.js" defer></script><!--!--><!--!--><!--!--><script src="https://cdn.jsdelivr.net/npm/cookieconsent@3.1.1/build/cookieconsent.min.js" defer></script><script>window.addEventListener("load", () => {
+      window.cookieconsent.initialise({
+        type: "info",
+        theme: "edgeless",
+        static: false,
+        position: "bottom-left",
+        content: {
+          message: "此网站使用Cookie来改善您的体验。",
+          dismiss: "知道了！",
+          allow: "允许使用Cookie",
+          deny: "拒绝",
+          link: "了解更多",
+          policy: "Cookie政策",
+          href: "https://www.cookiesandyou.com/",
+        },
+        palette: {
+          popup: {
+            background: "#edeff5",
+            text: "#838391"
+          },
+          button: {
+            background: "#4b81e8"
+          },
+        },
+      });
+    });</script><script src="https://cdn.jsdelivr.net/npm/lightgallery@1.6.8/dist/js/lightgallery.min.js" defer></script><script src="https://cdn.jsdelivr.net/npm/justifiedGallery@3.7.0/dist/js/jquery.justifiedGallery.min.js" defer></script><script>window.addEventListener("load", () => {
+            if (typeof $.fn.lightGallery === 'function') {
+                $('.article').lightGallery({ selector: '.gallery-item' });
+            }
+            if (typeof $.fn.justifiedGallery === 'function') {
+                if ($('.justified-gallery > p > .gallery-item').length) {
+                    $('.justified-gallery > p > .gallery-item').unwrap();
+                }
+                $('.justified-gallery').justifiedGallery();
+            }
+        });</script><!--!--><!--!--><!--!--><!--!--><!--!--><script src="/js/main.js" defer></script><div class="searchbox"><div class="searchbox-container"><div class="searchbox-header"><div class="searchbox-input-container"><input class="searchbox-input" type="text" placeholder="想要查找什么..."></div><a class="searchbox-close" href="javascript:;">×</a></div><div class="searchbox-body"></div></div></div><script src="/js/insight.js" defer></script><script>document.addEventListener('DOMContentLoaded', function () {
+            loadInsight({"contentUrl":"/content.json"}, {"hint":"想要查找什么...","untitled":"(无标题)","posts":"文章","pages":"页面","categories":"分类","tags":"标签"});
+        });</script></body></html>
